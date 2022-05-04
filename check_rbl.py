@@ -45,7 +45,7 @@ if rv >= sys.version_info:
     sys.exit(3)
 
 # List of DNS blacklists
-f = open("serverlist.txt", "r")
+f = open("/usr/lib/nagios/plugins/check_rbl2/serverlist.txt", "r")
 serverlist = f.read().splitlines()
 f.close()
 ####
