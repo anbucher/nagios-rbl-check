@@ -23,12 +23,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>
-
 # Import Modules
 import sys
 import os
 import getopt
 import socket
+import re
 import string
 if sys.version_info[0] == 3:
     import queue as Queue
@@ -43,12 +43,6 @@ rv = (2, 6)
 if rv >= sys.version_info:
     print("ERROR: Requires Python 2.6 or greater")
     sys.exit(3)
-
-# List of DNS blacklists
-f = open("/usr/lib/nagios/plugins/check_rbl2/serverlist.txt", "r")
-serverlist = f.read().splitlines()
-f.close()
-####
 
 queue = Queue.Queue()
 debug = False
@@ -90,13 +84,14 @@ def usage(argv0):
 
 def main(argv, environ):
     options, remainder = getopt.getopt(argv[1:],
-                                       "w:c:h:a:d46",
-                                       ["warn=", "crit=", "host=", "address=","debug", "ipv4", "ipv6"])
+                                       "w:c:h:a:f:d46",
+                                       ["warn=", "crit=", "host=", "address=", "file=","debug", "ipv4", "ipv6"])
     status = {'OK': 0, 'WARNING': 1, 'CRITICAL': 2, 'UNKNOWN': 3}
     host = None
     addr = None
     force_ipv4 = False
     force_ipv6 = False
+    ip_is_cidr = False
 
     if len(options) > 4 or len(options) < 3:
         usage(argv[0])
@@ -111,6 +106,8 @@ def main(argv, environ):
             host = val
         elif field in ('-a', '--address'):
             addr = val
+        elif field in ('-f', '--file'):
+            file = val
         elif field in ('-4', '--ipv4'):
             force_ipv4 = True 
         elif field in ('-6', '--ipv6'):
@@ -145,18 +142,42 @@ def main(argv, environ):
             sys.exit(status['UNKNOWN'])
 
     if sys.version_info[0] >= 3:
-        ip = ipaddress.ip_address(addr)
+        if re.match('^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[1-2][0-9]|3[0-2]))', addr):
+            network = ipaddress.ip_network(addr)
+            ip_is_cidr = True
+        else:
+            ip = ipaddress.ip_address(addr)
     else:
         ip = ipaddress.ip_address(unicode(addr))
-    if (ip.version == 6):
-        addr_exploded = ip.exploded
-        check_name = '.'.join([c for c in addr_exploded if c != ':'])[::-1]
+
+    if not ip_is_cidr:
+        if (ip.version == 6):
+            addr_exploded = ip.exploded
+            check_name = '.'.join([c for c in addr_exploded if c != ':'])[::-1]
+        else:
+            addr_parts = addr.split('.')
+            addr_parts.reverse()
+            check_name = '.'.join(addr_parts)
     else:
-        addr_parts = addr.split('.')
-        addr_parts.reverse()
-        check_name = '.'.join(addr_parts)
+        for address in network:
+            addr_parts = str(address).split('.')
+            addr_parts.reverse()
+            check_name = '.'.join(addr_parts)
     # Make host and addr the same thing to simplify output functions below
     host = addr
+
+    # Use file path given by argument, switch to default path if argument not supplied
+    if 'file' not in locals():
+        f = open("/usr/lib/nagios/plugins/check_rbl2/serverlist.txt", "r")
+        serverlist = f.read().splitlines()
+        f.close()
+    else:
+        # List of DNS blacklists
+        f = open(file, "r")
+        serverlist = f.read().splitlines()
+        f.close()
+        ####
+    ####
 
 # ##### Start thread stuff
 
